@@ -1,41 +1,95 @@
 {
     "bodega_tides": [
-        ["High", "3:57 AM", "5.8 ft"],
-        ["Low", "11:27 AM", "0.7 ft"],
-        ["High", "6:10 PM", "3.4 ft"],
-        ["Low", "10:25 PM", "2.9 ft"]
+        [
+            "High",
+            "5:53 AM",
+            "6.2ft"
+        ],
+        [
+            "Low",
+            "1:43 PM",
+            "-0.4ft"
+        ],
+        [
+            "High",
+            "8:52 PM",
+            "4.2ft"
+        ]
     ],
     "fort_ross": [
-        ["High", "3:45 AM", "5.6 ft"],
-        ["Low", "11:15 AM", "0.5 ft"],
-        ["High", "6:00 PM", "3.2 ft"],
-        ["Low", "10:15 PM", "2.7 ft"]
+        [
+            "High",
+            "5:40 AM",
+            "6.2ft"
+        ],
+        [
+            "Low",
+            "1:29 PM",
+            "-0.5ft"
+        ],
+        [
+            "High",
+            "8:39 PM",
+            "4.2ft"
+        ]
     ],
     "goat_rock": [
-        ["High", "3:12 AM", "5.8 ft"],
-        ["Low", "11:12 AM", "0.7 ft"],
-        ["High", "5:25 PM", "3.4 ft"],
-        ["Low", "10:10 PM", "2.9 ft"]
+        [
+            "High",
+            "5:45 AM",
+            "6.2ft"
+        ],
+        [
+            "Low",
+            "1:34 PM",
+            "-0.5ft"
+        ],
+        [
+            "High",
+            "8:44 PM",
+            "4.2ft"
+        ]
     ],
     "jenner_beach": [
-        ["High", "3:12 AM", "5.8 ft"],
-        ["Low", "11:12 AM", "0.7 ft"],
-        ["High", "5:25 PM", "3.4 ft"],
-        ["Low", "10:10 PM", "2.9 ft"]
+        [
+            "High",
+            "5:45 AM",
+            "6.2ft"
+        ],
+        [
+            "Low",
+            "1:34 PM",
+            "-0.5ft"
+        ],
+        [
+            "High",
+            "8:44 PM",
+            "4.2ft"
+        ]
     ],
     "estuary": [
-        ["High", "5:27 AM", "5.8 ft"],
-        ["Low", "12:27 PM", "0.7 ft"],
-        ["High", "7:40 PM", "3.4 ft"],
-        ["Low", "11:25 PM", "2.9 ft"]
+        [
+            "High",
+            "7:23 AM",
+            "6.2ft"
+        ],
+        [
+            "Low",
+            "2:43 PM",
+            "-0.4ft"
+        ],
+        [
+            "High",
+            "10:22 PM",
+            "4.2ft"
+        ]
     ],
-    "hacienda_stage": "5.90",
-    "hacienda_cfs": "1290",
-    "jenner_stage": "4.95",
+    "hacienda_stage": "5.56",
+    "hacienda_cfs": "1170",
+    "jenner_stage": "-0.64",
     "river_mouth_status": "OPEN",
     "tide_success": true,
     "river_success": true,
-    "last_tide_time": "5:30 PM",
-    "last_river_time": "5:30 PM"
+    "last_tide_time": "8:12 AM",
+    "last_river_time": "3:13 PM"
 }
-
