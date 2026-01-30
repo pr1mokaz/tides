@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Display GUI mock for testing on Windows (without hardware)."""
 import os
 import sys
 import json
@@ -7,12 +8,8 @@ import math
 from datetime import date, datetime
 from PIL import Image, ImageDraw, ImageFont
 
-# Path to your Waveshare library
-libdir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'e-Paper/RaspberryPi_JetsonNano/python/lib')
-if os.path.exists(libdir):
-    sys.path.append(libdir)
-
-from waveshare_epd import epd4in2_V2
+# Don't import waveshare on non-Pi systems
+SKIP_HARDWARE = True
 
 # Settings - SWAPPED FOR PORTRAIT
 DATA_FILE = "tides.json"
@@ -54,14 +51,14 @@ def draw_flow_block(draw, x, y, data, section_font, text_font):
     curr_y = y + 18
     # Hacienda: label on left, stage/flow right-justified at x+280
     hacienda_text = f"{data.get('hacienda_stage','--')} ft {data.get('hacienda_cfs','--')}cfs"
-    draw.text((x, curr_y), "Hacienda Bridge Guernville:", font=text_font, fill=0)
+    draw.text((x, curr_y), "Hacienda:", font=text_font, fill=0)
     h_bbox = draw.textbbox((0, 0), hacienda_text, font=text_font)
     h_width = h_bbox[2] - h_bbox[0]
     draw.text((x + 280 - h_width, curr_y), hacienda_text, font=text_font, fill=0)
     curr_y += 14
     # Jenner: label on left, stage right-justified at x+280
     jenner_text = f"{data.get('jenner_stage','--')} ft"
-    draw.text((x, curr_y), "US-1 Bridge Jenner:", font=text_font, fill=0)
+    draw.text((x, curr_y), "Jenner:", font=text_font, fill=0)
     j_bbox = draw.textbbox((0, 0), jenner_text, font=text_font)
     j_width = j_bbox[2] - j_bbox[0]
     draw.text((x + 280 - j_width, curr_y), jenner_text, font=text_font, fill=0)
@@ -260,8 +257,10 @@ def render_tide_layout(data):
 # ---------- Main Loop ----------
 
 def main():
-    print("Initializing e-Paper (Portrait)...")
-    epd = epd4in2_V2.EPD()
+    if not SKIP_HARDWARE:
+        print("Initializing e-Paper (Portrait)...")
+        from waveshare_epd import epd4in2_V2
+        epd = epd4in2_V2.EPD()
     
     last_mtime = 0
     while True:
@@ -272,18 +271,24 @@ def main():
                     with open(DATA_FILE, "r") as f:
                         data = json.load(f)
                     
-                    print("Updating Portrait Display...")
+                    print("Rendering Portrait Display...")
                     img = render_tide_layout(data)
                     
-                    epd.init()
-                    # We pass the 300x400 buffer; the EPD driver handles the hardware orientation
-                    epd.display(epd.getbuffer(img))
-                    epd.sleep() 
+                    if not SKIP_HARDWARE:
+                        epd.init()
+                        epd.display(epd.getbuffer(img))
+                        epd.sleep() 
+                    else:
+                        # For testing: save to file
+                        img.save("display_output.png")
+                        print("Saved to display_output.png")
                     
                     last_mtime = mtime
                     print(f"Update Complete: {time.ctime()}")
                 except Exception as e:
                     print(f"Error: {e}")
+                    import traceback
+                    traceback.print_exc()
         
         time.sleep(60) 
 
