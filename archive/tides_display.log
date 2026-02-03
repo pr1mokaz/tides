@@ -1,0 +1,58 @@
+[2026-02-02 08:36:37] INFO: Display service started
+[2026-02-02 08:36:47] INFO: Display updated successfully
+[2026-02-02 09:20:58] INFO: Display service started
+[2026-02-02 09:21:01] INFO: Saved display image(s) to display_outputs
+[2026-02-02 09:21:07] INFO: Display updated successfully
+[2026-02-02 09:37:09] INFO: Saved display image(s) to display_outputs
+[2026-02-02 09:37:15] INFO: Display updated successfully
+[2026-02-02 10:17:23] INFO: Display service started
+[2026-02-02 10:17:26] INFO: Saved display image(s) to display_outputs
+[2026-02-02 10:35:15] INFO: Display service started
+[2026-02-02 10:35:15] ERROR: Main loop error: ImageDraw.rectangle() got multiple values for argument 'fill'
+[2026-02-02 10:36:19] INFO: Display service started
+[2026-02-02 10:36:19] ERROR: Main loop error: ImageDraw.rectangle() got multiple values for argument 'fill'
+[2026-02-02 10:37:40] INFO: Display service started
+[2026-02-02 10:37:41] ERROR: Main loop error: name 'today_jenner_stage' is not defined
+[2026-02-02 10:38:42] ERROR: Main loop error: name 'today_jenner_stage' is not defined
+[2026-02-02 10:39:42] ERROR: Main loop error: name 'today_jenner_stage' is not defined
+[2026-02-02 10:40:41] INFO: Display service started
+[2026-02-02 10:40:44] WARNING: Prior-day Goat Rock tides missing; early hours may appear flat
+[2026-02-02 10:40:45] INFO: Saved display image(s) to display_outputs
+[2026-02-02 10:47:57] INFO: Display service started
+[2026-02-02 10:48:00] WARNING: Prior-day Goat Rock tides missing; early hours may appear flat
+[2026-02-02 10:48:01] INFO: Saved display image(s) to display_outputs
+[2026-02-02 10:55:40] INFO: Display service started
+[2026-02-02 10:55:42] WARNING: Prior-day Goat Rock tides missing; early hours may appear flat
+[2026-02-02 10:55:43] INFO: Saved display image(s) to display_outputs
+[2026-02-02 10:55:48] INFO: Display updated successfully
+[2026-02-02 11:55:49] WARNING: Prior-day Goat Rock tides missing; early hours may appear flat
+[2026-02-02 11:55:49] INFO: Saved display image(s) to display_outputs
+[2026-02-02 11:55:54] INFO: Display updated successfully
+[2026-02-02 12:03:27] INFO: Display service started
+[2026-02-02 12:03:30] WARNING: Prior-day Goat Rock tides missing; early hours may appear flat
+[2026-02-02 12:03:30] INFO: Saved display image(s) to display_outputs
+[2026-02-02 12:03:35] INFO: Display updated successfully
+[2026-02-02 12:05:11] INFO: Display service started
+[2026-02-02 12:05:14] WARNING: Prior-day Goat Rock tides missing; early hours may appear flat
+[2026-02-02 12:05:14] INFO: Saved display image(s) to display_outputs
+[2026-02-02 12:05:19] INFO: Display updated successfully
+[2026-02-02 12:56:20] WARNING: Prior-day Goat Rock tides missing; early hours may appear flat
+[2026-02-02 12:56:20] INFO: Saved display image(s) to display_outputs
+[2026-02-02 12:56:25] INFO: Display updated successfully
+[2026-02-02 13:56:26] WARNING: Prior-day Goat Rock tides missing; early hours may appear flat
+[2026-02-02 13:56:26] INFO: Saved display image(s) to display_outputs
+[2026-02-02 13:56:31] INFO: Display updated successfully
+[2026-02-02 15:19:31] INFO: Display service started
+[2026-02-02 15:19:35] WARNING: Prior-day Goat Rock tides missing; early hours may appear flat
+[2026-02-02 15:19:35] INFO: Saved display image(s) to display_outputs
+[2026-02-02 15:19:40] INFO: Display updated successfully
+[2026-02-02 16:19:41] WARNING: Prior-day Goat Rock tides missing; early hours may appear flat
+[2026-02-02 16:19:41] INFO: Saved display image(s) to display_outputs
+[2026-02-02 16:19:46] INFO: Display updated successfully
+[2026-02-02 17:20:48] WARNING: Prior-day Goat Rock tides missing; early hours may appear flat
+[2026-02-02 17:20:48] INFO: Saved display image(s) to display_outputs
+[2026-02-02 17:20:53] INFO: Display updated successfully
+[2026-02-02 18:36:26] INFO: Display service started
+[2026-02-02 18:36:30] WARNING: Prior-day Goat Rock tides missing; early hours may appear flat
+[2026-02-02 18:36:30] INFO: Saved display image(s) to display_outputs
+[2026-02-02 18:36:35] INFO: Display updated successfully

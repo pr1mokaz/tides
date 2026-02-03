@@ -1,13 +1,34 @@
 #!/usr/bin/env python3
+"""
+Fetcher program for tides and river data.
+
+Required files:
+- fetcher.py
+- data_validator.py
+- tides.json (generated/updated by this script)
+
+Dependencies:
+- Python 3
+- requests
+
+Outputs:
+- tides.json
+"""
 #
 # module: fetcher.py
 # dependencies: requests
+# Includes: Retry logic, caching, and error recovery
 
 import requests
 import json
 import time
 import os
 from datetime import datetime, timedelta
+from data_validator import DataValidator
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
 
 # Settings
 DATA_FILE = "tides.json"
@@ -18,6 +39,14 @@ BODEGA_STATION = "9415625"
 FORT_ROSS_STATION = "9416024"
 SF_WATER_LEVEL_STATION = "9414290"  # San Francisco for real-time water level (deviation tracking)
 
+# Retry configuration
+MAX_RETRIES = 3
+RETRY_DELAY = 2  # seconds, increases exponentially
+
+# Timezone for interpreting USGS timestamps
+DEFAULT_TZ = os.environ.get("TIDES_TZ", "America/Los_Angeles")
+LOCAL_TZ = ZoneInfo(DEFAULT_TZ) if ZoneInfo else None
+
 # Standard browser headers
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0'
@@ -27,6 +56,32 @@ HEADERS = {
 last_tide_fetch_date = ""
 
 # ---------- Helpers ----------
+
+def retry_request(url, params=None, max_retries=MAX_RETRIES, timeout=15):
+    """Make HTTP request with exponential backoff retry logic"""
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, params=params, headers=HEADERS, timeout=timeout)
+            response.raise_for_status()
+            return response
+        except requests.exceptions.Timeout:
+            print(f"  Timeout (attempt {attempt + 1}/{max_retries})")
+            if attempt < max_retries - 1:
+                wait = RETRY_DELAY * (2 ** attempt)
+                print(f"  Retrying in {wait}s...")
+                time.sleep(wait)
+        except requests.exceptions.ConnectionError as e:
+            print(f"  Connection error: {e} (attempt {attempt + 1}/{max_retries})")
+            if attempt < max_retries - 1:
+                wait = RETRY_DELAY * (2 ** attempt)
+                print(f"  Retrying in {wait}s...")
+                time.sleep(wait)
+        except requests.exceptions.RequestException as e:
+            print(f"  Request failed: {e}")
+            return None
+    
+    print(f"  Failed after {max_retries} attempts")
+    return None
 
 def shift_time(timestr, delta_minutes):
     """Adjusts a time string (e.g., '3:58 AM') by +/- minutes."""
@@ -40,10 +95,19 @@ def shift_time(timestr, delta_minutes):
 
 def save_json(data):
     """Atomic save to trigger e-ink display refresh."""
+    # Backup before writing
+    DataValidator.ensure_backup(DATA_FILE)
+    
     temp_file = DATA_FILE + ".tmp"
-    with open(temp_file, "w") as f:
-        json.dump(data, f, indent=4)
-    os.replace(temp_file, DATA_FILE)
+    try:
+        with open(temp_file, "w") as f:
+            json.dump(data, f, indent=4)
+        os.replace(temp_file, DATA_FILE)
+        print(f"✓ Data saved successfully")
+    except Exception as e:
+        print(f"✗ Failed to save data: {e}")
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
 
 # ---------- API Logic ----------
 
@@ -55,15 +119,112 @@ def get_latest_usgs_value(site_id, parameter="00065"):
         "f": "json"
     }
     print(f"--- Syncing USGS river measurements ({site_id}) ---")
+    response = retry_request(usgs_url, params=params)
+    if response is None:
+        print(f"✗ USGS fetch failed for {site_id}")
+        return None
+    
+    try:
+        data = response.json()
+        if "features" in data and len(data["features"]) > 0:
+            return data["features"][0].get("properties", {}).get("value")
+    except Exception as e:
+        print(f"✗ USGS parse error: {e}")
+    return None
+
+def get_usgs_daily_data(site_id, parameter="00065", days_back=1):
+    """Fetch USGS daily values for a site over the past days_back days.
+    Returns a list of (datetime, value) tuples.
+    """
+    usgs_url = f"{BASE_URL}/USGS-daily-values/items"
+    params = {
+        "monitoring_location_id": site_id,
+        "parameter_code": parameter,
+        "f": "json"
+    }
+    print(f"--- Fetching USGS daily data ({site_id}) ---")
     try:
         response = requests.get(usgs_url, params=params, headers=HEADERS, timeout=15)
         response.raise_for_status()
         data = response.json()
         if "features" in data and len(data["features"]) > 0:
-            return data["features"][0].get("properties", {}).get("value")
+            results = []
+            for feature in data["features"]:
+                props = feature.get("properties", {})
+                dt_str = props.get("dateTime")
+                value = props.get("value")
+                if dt_str and value is not None:
+                    try:
+                        dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                        results.append((dt, float(value)))
+                    except:
+                        pass
+            return results
     except Exception as e:
-        print(f"FAILED USGS fetch for {site_id}: {e}")
-    return None
+        print(f"FAILED USGS daily data fetch for {site_id}: {e}")
+    return []
+
+def get_usgs_iv_history(site_id, parameter="00065", period="P2D"):
+    """Fetch USGS 15-min (iv) history for the last period (e.g., P2D).
+    Returns dict of date_key -> list of {time, minutes, stage}.
+    """
+    url = "https://waterservices.usgs.gov/nwis/iv/"
+    params = {
+        "format": "json",
+        "sites": site_id.replace("USGS-", ""),
+        "parameterCd": parameter,
+        "period": period
+    }
+    print(f"--- Fetching USGS IV history ({site_id}, {period}) ---")
+    response = retry_request(url, params=params, timeout=20)
+    if response is None:
+        print(f"✗ USGS IV history fetch failed for {site_id}")
+        return {}
+
+    try:
+        data = response.json()
+        time_series = data.get("value", {}).get("timeSeries", [])
+        if not time_series:
+            return {}
+
+        values = time_series[0].get("values", [])
+        if not values:
+            return {}
+
+        history = {}
+        for entry in values[0].get("value", []):
+            dt_str = entry.get("dateTime")
+            val = entry.get("value")
+            if not dt_str or val in (None, ""):
+                continue
+            try:
+                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                if LOCAL_TZ:
+                    dt = dt.astimezone(LOCAL_TZ)
+                else:
+                    dt = dt.astimezone()
+                date_key = dt.strftime("%Y-%m-%d")
+                minutes = dt.hour * 60 + dt.minute
+                time_str = dt.strftime("%I:%M %p").lstrip("0")
+                history.setdefault(date_key, []).append({
+                    "time": time_str,
+                    "minutes": minutes,
+                    "stage": float(val)
+                })
+            except Exception:
+                continue
+
+        # Sort and de-dup per day by minutes
+        for date_key, items in history.items():
+            dedup = {}
+            for item in items:
+                dedup[item["minutes"]] = item
+            history[date_key] = [dedup[m] for m in sorted(dedup.keys())]
+
+        return history
+    except Exception as e:
+        print(f"FAILED USGS IV history parse for {site_id}: {e}")
+        return {}
 
 def interpolate_predicted_level(hour_minute, predictions_for_today):
     """Simple linear interpolation between two tide points.
@@ -146,16 +307,17 @@ def get_noaa_water_level(station_id):
         print(f"FAILED water level fetch for {station_id}: {e}")
     return None, None
 
-def get_noaa_tides_multiday(station_id, days_forward=14):
-    """Fetch NOAA tide predictions for station_id over the next days_forward days.
+def get_noaa_tides_multiday(station_id, days_forward=14, days_back=1):
+    """Fetch NOAA tide predictions for station_id over the past days_back and next days_forward days.
     Returns a dict {"YYYY-MM-DD": [(label, time_str, height), ...], ...}
     """
     noaa_url = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
     today = datetime.now()
+    begin_date = today - timedelta(days=days_back)
     end_date = today + timedelta(days=days_forward)
     
     params = {
-        "begin_date": today.strftime("%Y%m%d"),
+        "begin_date": begin_date.strftime("%Y%m%d"),
         "end_date": end_date.strftime("%Y%m%d"),
         "station": station_id,
         "product": "predictions",
@@ -166,7 +328,7 @@ def get_noaa_tides_multiday(station_id, days_forward=14):
         "application": "DataAPI_Sample",
         "format": "json"
     }
-    print(f"--- Syncing NOAA tide predictions ({station_id}) for {days_forward} days ---")
+    print(f"--- Syncing NOAA tide predictions ({station_id}) for past {days_back} and next {days_forward} days ---")
     result = {}
     try:
         response = requests.get(noaa_url, params=params, headers=HEADERS, timeout=15)
@@ -220,22 +382,70 @@ def fetch_cycle():
     global last_tide_fetch_date
     current_date_str = datetime.now().strftime("%Y-%m-%d")
 
-    # Load baseline
+    # Load baseline with validation
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r') as f:
                 data = json.load(f)
+            # Validate structure
+            issues, msg, is_usable = DataValidator.validate_tides_data(data)
+            if not is_usable:
+                print(f"⚠ Data validation warnings: {msg}")
+                if not issues:  # Still use it if usable
+                    pass
+        except json.JSONDecodeError as e:
+            print(f"✗ JSON corruption detected: {e}, starting fresh")
+            data = {}
         except Exception as e:
-            print(f"Failed to load {DATA_FILE}: {e}")
+            print(f"✗ Failed to load {DATA_FILE}: {e}")
             data = {}
     else:
+        print(f"ℹ Creating new {DATA_FILE}")
+        DataValidator.create_template_if_missing(DATA_FILE)
         data = {}
+
+    # Ensure data_sources tracking exists
+    if "data_sources" not in data:
+        data["data_sources"] = {}
 
     # --- PHASE 1: RIVER + OBSERVED WATER LEVEL (Every Cycle - 1 Hour) ---
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Phase 1: USGS River Data + NOAA Water Level")
     h_stage = get_latest_usgs_value(HACIENDA_ID, "00065")
     h_cfs = get_latest_usgs_value(HACIENDA_ID, "00060") 
     j_stage = get_latest_usgs_value(JENNER_ID, "00065")
+
+    # Collect Jenner water stage measurements (prefer 15-min history for accuracy)
+    if "jenner_stage_history" not in data:
+        data["jenner_stage_history"] = {}
+
+    # Update from USGS IV history (last 2 days) to match website peaks
+    iv_history = get_usgs_iv_history(JENNER_ID, "00065", period="P2D")
+    if iv_history:
+        data["jenner_stage_history"].update(iv_history)
+        data["data_sources"]["jenner_stage_updated"] = datetime.now().isoformat()
+    elif j_stage is not None:
+        # Fallback: append current reading if IV history unavailable
+        current_time = datetime.now().strftime("%I:%M %p").lstrip("0")
+        current_mins = datetime.now().hour * 60 + datetime.now().minute
+        day_list = data["jenner_stage_history"].setdefault(current_date_str, [])
+        # De-dup by minute
+        day_list = [m for m in day_list if m.get("minutes") != current_mins]
+        day_list.append({
+            "time": current_time,
+            "minutes": current_mins,
+            "stage": float(j_stage)
+        })
+        data["jenner_stage_history"][current_date_str] = sorted(day_list, key=lambda m: m.get("minutes", 0))
+        data["data_sources"]["jenner_stage_updated"] = datetime.now().isoformat()
+
+    # Keep only last 3 days of stage history
+    for date_key in list(data["jenner_stage_history"].keys()):
+        try:
+            dt_key = datetime.strptime(date_key, "%Y-%m-%d")
+            if (datetime.now() - dt_key).days > 2:
+                del data["jenner_stage_history"][date_key]
+        except Exception:
+            continue
 
     if h_stage is not None and j_stage is not None:
         data.update({

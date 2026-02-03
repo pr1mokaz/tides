@@ -1,0 +1,146 @@
+JENNER US1 BRIDGE WATER STAGE - THIRD CURVE IMPLEMENTATION COMPLETE
+=====================================================================
+
+OVERVIEW
+--------
+Successfully added a third line to the tide graph showing water stage measurements 
+from the USGS Jenner US1 Bridge (USGS-11467270).
+
+WHAT WAS IMPLEMENTED
+--------------------
+
+1. DATA COLLECTION (fetcher.py)
+   - Added get_usgs_daily_data() function to fetch historical USGS data
+   - Modified fetch_cycle() to collect water stage measurements every cycle
+   - Stores measurements in tides.json as "jenner_stage_history" with:
+     * timestamp (e.g., "6:00 AM")
+     * minutes since midnight (for x-axis positioning)
+     * stage value in feet
+
+2. GRAPH CURVE FITTING (display_gui_eink_portrait.py)
+   - Added linear_interpolate() for basic linear interpolation
+   - Added polynomial_fit_interpolate() for smooth polynomial curves
+   - Uses degree-3 polynomial to fit the water stage measurements
+   - Matches the wave-like pattern shown in your USGS snapshot
+
+3. VISUALIZATION
+   - Graph now displays THREE curves instead of two:
+     * SOLID LINE    = Goat Rock tides (tidal prediction)
+     * DASHED LINE   = Jenner Estuary tides (tidal prediction)
+     * DOTTED LINE   = Jenner US1 Bridge stage (MEASURED water level)
+   - All curves use the same -2 to +8 ft vertical scale
+   - Updated legend on display: "(Goat Rock, Estuary & Stage)"
+
+HOW IT WORKS
+------------
+
+1. Every hour, fetcher.py collects the latest water stage from USGS
+2. Each measurement is stored with its exact time and value
+3. When the display renders, it:
+   - Takes all measurements collected so far today
+   - Fits a smooth polynomial curve through them
+   - Samples the curve every 15 minutes for plotting
+   - Draws every 3rd point as a "dotted" line for visibility on e-ink
+
+DATA LOCATION
+-------------
+
+The stage history is stored in tides.json:
+  "jenner_stage_history": {
+    "2026-02-02": [
+      {"time": "6:00 AM", "minutes": 360, "stage": 4.2},
+      {"time": "7:00 AM", "minutes": 420, "stage": 4.8},
+      ...
+    ]
+  }
+
+Each day's measurements are stored separately and old dates are purged
+when new dates arrive, so it only keeps "today's" data.
+
+TEST VISUALIZATIONS CREATED
+----------------------------
+
+You can view these PNG files to see the third curve in action:
+
+1. THREE_CURVES_VISUALIZATION.png (800x400)
+   - High-quality visualization with all three curves clearly visible
+   - Shows the dotted line (Jenner stage) distinct from the other two
+   - Best for seeing how the curves relate to each other
+
+2. display_test_with_usgs.png (300x400)
+   - Simulates the actual e-ink display rendering
+   - Shows the complete display with header, text blocks, and graph
+   - Same resolution as the physical display device
+
+3. full_graph_test.png (300x120)
+   - Just the graph area zoomed in
+   - Shows the axis labels and all three curves
+
+4. usgs_curve_test.png (500x300)
+   - Isolates just the USGS curve with measurement points marked as circles
+
+NEXT STEPS
+----------
+
+The fetcher.py needs to be run regularly to collect measurements:
+- Run once at startup to get initial data from today
+- Then run hourly in a cron job or systemd timer
+- Each run will add new measurements to jenner_stage_history
+
+Example: Run this command to seed today's data:
+  python fetcher.py
+
+DEBUGGING NOTES
+---------------
+
+If the third curve doesn't appear:
+
+1. Check tides.json for jenner_stage_history entry
+   - Should have at least 2 measurements for curve to render
+   
+2. Verify measurements have valid "minutes" values (0-1440)
+   - Must be time in minutes since midnight
+   
+3. Check that the data for today exists
+   - display_gui_eink_portrait.py uses datetime.today().strftime("%Y-%m-%d")
+   - Must have matching key in jenner_stage_history dict
+
+4. Ensure polynomial fitting works:
+   - Requires numpy library: pip install numpy
+   - Falls back to linear interpolation if numpy unavailable
+
+POLYNOMIAL FITTING DETAILS
+---------------------------
+
+The water stage curve uses polynomial fitting because:
+- USGS data follows a smooth wave pattern (as shown in your snapshot)
+- Polynomial degree-3 smoothly interpolates between measurement points
+- Better than linear interpolation for tidal/water level data
+- Automatically handles varying numbers of daily measurements
+
+You can modify the fitting method by:
+- Changing degree parameter in polynomial_fit_interpolate()
+- Currently set to degree=3 (cubic) - good balance of smoothness
+- Increase for smoother curves, decrease for closer fit to actual points
+
+FILES MODIFIED
+--------------
+
+1. fetcher.py
+   - Added get_usgs_daily_data() function
+   - Added stage history collection to fetch_cycle()
+
+2. display_gui_eink_portrait.py
+   - Added linear_interpolate() function
+   - Added polynomial_fit_interpolate() function
+   - Modified draw_tide_waveform() to accept and render jenner_stage_history
+   - Updated render_tide_layout() to pass stage data to waveform function
+   - Updated graph legend text
+
+NO BREAKING CHANGES
+-------------------
+
+- All existing functionality preserved
+- If jenner_stage_history is empty or missing, graph still renders
+- Existing two-curve display works fine even without the third line
+- Code gracefully handles missing measurements

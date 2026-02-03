@@ -1,0 +1,577 @@
+#!/usr/bin/env python3
+"""Deprecated wrapper. Use display_eink.py instead."""
+import os
+import sys
+import json
+import time
+import math
+from datetime import date, datetime, timedelta
+from PIL import Image, ImageDraw, ImageFont
+from data_validator import DataValidator
+
+# Path to your Waveshare library
+libdir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'e-Paper/RaspberryPi_JetsonNano/python/lib')
+if os.path.exists(libdir):
+    sys.path.append(libdir)
+
+try:
+    from waveshare_epd import epd4in2_V2
+    EPAPER_AVAILABLE = True
+except ImportError:
+    print("⚠ Waveshare library not available, display will save to PNG only")
+    EPAPER_AVAILABLE = False
+
+# Settings - SWAPPED FOR PORTRAIT
+DATA_FILE = "tides.json"
+WIDTH = 300   
+HEIGHT = 400
+LOG_FILE = "tides_display.log"
+OUTPUT_DIR = "display_outputs"
+OUTPUT_FORMATS = ("png", "jpg")
+
+# Error tracking
+ERROR_LOG = []  
+
+# ---------- Logging & Error Handling ----------
+
+def log_error(msg, error_type="INFO"):
+    """Log error messages with timestamp"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_msg = f"[{timestamp}] {error_type}: {msg}"
+    ERROR_LOG.append(log_msg)
+    print(log_msg)
+    
+    # Write to file
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(log_msg + "\n")
+    except:
+        pass
+
+def save_display_image(img):
+    """Save output image(s) for debugging and easy transfer."""
+    try:
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        for fmt in OUTPUT_FORMATS:
+            filename = f"display_{timestamp}.{fmt}"
+            path = os.path.join(OUTPUT_DIR, filename)
+            if fmt.lower() in ("jpg", "jpeg"):
+                img.convert("L").save(path, format="JPEG", quality=90)
+            else:
+                img.save(path)
+        # Also keep a fixed name for easy copy
+        latest_path = os.path.join(OUTPUT_DIR, "display_latest.png")
+        img.save(latest_path)
+        log_error(f"Saved display image(s) to {OUTPUT_DIR}", "INFO")
+    except Exception as e:
+        log_error(f"Failed to save display image: {e}", "ERROR")
+
+def load_and_validate_data(data_file):
+    """Load tides.json with validation and error handling"""
+    # Ensure template exists
+    if not os.path.exists(data_file):
+        log_error(f"Data file missing, creating template", "WARNING")
+        DataValidator.create_template_if_missing(data_file)
+    
+    try:
+        with open(data_file, "r") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        log_error(f"JSON parse error: {e}", "ERROR")
+        return None, "Data file corrupted"
+    except Exception as e:
+        log_error(f"Failed to load data: {e}", "ERROR")
+        return None, f"Load error: {e}"
+    
+    # Validate structure
+    issues, msg, is_usable = DataValidator.validate_tides_data(data)
+    for issue in issues:
+        log_error(issue, "WARNING")
+    
+    if not is_usable:
+        log_error(f"Data validation failed: {msg}", "ERROR")
+        return data, msg  # Return partial data
+    
+    return data, "OK"
+
+# ---------- Drawing Helpers ----------
+
+def load_fonts():
+    try:
+        header_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+        section_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+        text_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+        small_text_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 9)
+    except:
+        header_font = section_font = text_font = small_text_font = ImageFont.load_default()
+    return header_font, section_font, text_font, small_text_font
+
+def draw_station_block(draw, x, y, title, tides, section_font, text_font):
+    draw.text((x, y), title, font=section_font, fill=0)
+    curr_y = y + 18
+    # Render up to four tide entries with right-justified alignment
+    for label, t, h in tides[:4]:
+        # Label at x
+        draw.text((x, curr_y), label, font=text_font, fill=0)
+        # Time right-justified on M of AM/PM at x+95 (moved left from x+105)
+        t_bbox = draw.textbbox((0, 0), t, font=text_font)
+        t_width = t_bbox[2] - t_bbox[0]
+        draw.text((x + 95 - t_width, curr_y), t, font=text_font, fill=0)
+        # Height right-justified on t of ft at x+135 (moved left from x+140)
+        h_bbox = draw.textbbox((0, 0), h, font=text_font)
+        h_width = h_bbox[2] - h_bbox[0]
+        draw.text((x + 135 - h_width, curr_y), h, font=text_font, fill=0)
+        curr_y += 14
+    return curr_y
+
+def draw_flow_block(draw, x, y, data, section_font, text_font):
+    draw.text((x, y), "WEST RUSSIAN RIVER CONDITIONS", font=section_font, fill=0)
+    curr_y = y + 18
+    # Hacienda: label on left, stage/flow right-justified at x+280
+    hacienda_text = f"{data.get('hacienda_stage','--')} ft {data.get('hacienda_cfs','--')}cfs"
+    draw.text((x, curr_y), "Hacienda Bridge Guernville:", font=text_font, fill=0)
+    h_bbox = draw.textbbox((0, 0), hacienda_text, font=text_font)
+    h_width = h_bbox[2] - h_bbox[0]
+    draw.text((x + 280 - h_width, curr_y), hacienda_text, font=text_font, fill=0)
+    curr_y += 14
+    # Jenner: label on left, stage right-justified at x+280
+    jenner_text = f"{data.get('jenner_stage','--')} ft"
+    draw.text((x, curr_y), "US-1 Bridge Jenner:", font=text_font, fill=0)
+    j_bbox = draw.textbbox((0, 0), jenner_text, font=text_font)
+    j_width = j_bbox[2] - j_bbox[0]
+    draw.text((x + 280 - j_width, curr_y), jenner_text, font=text_font, fill=0)
+    curr_y += 14
+    curr_y += 2
+    # Mouth: label on left, status right-justified at x+280
+    mouth_text = data.get('river_mouth_status','UNKNOWN')
+    draw.text((x, curr_y), "River Mouth Barrier Bar:", font=text_font, fill=0)
+    m_bbox = draw.textbbox((0, 0), mouth_text, font=text_font)
+    m_width = m_bbox[2] - m_bbox[0]
+    draw.text((x + 280 - m_width, curr_y), mouth_text, font=text_font, fill=0)
+    curr_y += 14
+
+def time_str_to_minutes(time_str):
+    """Convert 'HH:MM' or 'H:MM' or '2:30 PM' to minutes since midnight."""
+    try:
+        if "AM" in time_str or "PM" in time_str:
+            dt = datetime.strptime(time_str, "%I:%M %p")
+        else:
+            dt = datetime.strptime(time_str.lstrip("0"), "%H:%M")
+        return dt.hour * 60 + dt.minute
+    except:
+        return None
+
+def linear_interpolate(t_min, events):
+    """Given a time in minutes and a list of (time_min, value) tuples,
+    interpolate linearly between points. Returns value or None.
+    """
+    if not events or len(events) < 1:
+        return None
+    
+    # Before first or after last
+    if t_min < events[0][0]:
+        return events[0][1]
+    if t_min > events[-1][0]:
+        return events[-1][1]
+    
+    # Find bracketing pair
+    for i in range(len(events) - 1):
+        t1, h1 = events[i]
+        t2, h2 = events[i + 1]
+        if t1 <= t_min <= t2:
+            if t2 == t1:
+                return h1
+            frac = (t_min - t1) / (t2 - t1)
+            return h1 + frac * (h2 - h1)
+    return None
+
+def polynomial_fit_interpolate(t_min, events, degree=3):
+    """Given a time in minutes and a list of (time_min, value) tuples,
+    fit a polynomial and interpolate. Returns value or None.
+    Uses numpy if available, otherwise uses Lagrange interpolation.
+    """
+    if not events or len(events) < 2:
+        return None
+    
+    # Before first or after last
+    if t_min < events[0][0]:
+        return events[0][1]
+    if t_min > events[-1][0]:
+        return events[-1][1]
+    
+    # Try numpy first (preferred)
+    try:
+        import numpy as np
+        times = np.array([e[0] for e in events])
+        values = np.array([e[1] for e in events])
+        actual_degree = min(degree, len(events) - 1)
+        coeffs = np.polyfit(times, values, actual_degree)
+        poly = np.poly1d(coeffs)
+        return float(poly(t_min))
+    except:
+        pass
+    
+    # Fallback: Use Lagrange polynomial interpolation (no numpy needed)
+    # Use up to 5 nearest points for smooth curves
+    times = [e[0] for e in events]
+    values = [e[1] for e in events]
+    
+    # Find the nearest points around t_min
+    idx = None
+    for i in range(len(times) - 1):
+        if times[i] <= t_min <= times[i + 1]:
+            idx = i
+            break
+    
+    if idx is None:
+        return linear_interpolate(t_min, events)
+    
+    # Use surrounding points for Lagrange interpolation
+    start_idx = max(0, idx - 2)
+    end_idx = min(len(times), idx + 3)
+    
+    x_points = times[start_idx:end_idx]
+    y_points = values[start_idx:end_idx]
+    
+    # Lagrange polynomial
+    result = 0.0
+    for i, (x_i, y_i) in enumerate(zip(x_points, y_points)):
+        term = y_i
+        for j, x_j in enumerate(x_points):
+            if i != j:
+                term *= (t_min - x_j) / (x_i - x_j)
+        result += term
+    
+    return result
+
+def half_sine_interpolate(t_min, events):
+    """Given a time in minutes and a list of (time_min, height) tuples,
+    interpolate using half-sine segments. Returns height or None.
+    """
+    if not events or len(events) < 2:
+        return None
+    
+    # Before first or after last
+    if t_min < events[0][0]:
+        return events[0][1]
+    if t_min > events[-1][0]:
+        return events[-1][1]
+    
+    # Find bracketing pair
+    for i in range(len(events) - 1):
+        t1, h1 = events[i]
+        t2, h2 = events[i + 1]
+        if t1 <= t_min <= t2:
+            if t2 == t1:
+                return h1
+            m = 0.5 * (h1 + h2)
+            a = 0.5 * (h2 - h1)
+            frac = (t_min - t1) / (t2 - t1)
+            theta = math.pi * frac - math.pi / 2
+            return m + a * math.sin(theta)
+    return None
+
+def draw_tide_waveform(draw, x, y, width, height, prior_tides_gr, today_tides_gr, next_tides_gr, prior_tides_est, today_tides_est, next_tides_est, prior_jenner_stage_history, today_jenner_stage_history, next_jenner_stage_history, text_font, small_text_font):
+    """Draw waveform visualization with three curves: Goat Rock (solid), Jenner Estuary (dashed), and Jenner Stage (dotted).
+    Uses prior/today/next day data to create smooth curve edges at midnight boundaries.
+    Only displays today's window (0-1440 minutes).
+    """
+    # Parse all three days into events
+    def parse_tides(tides, day_offset_mins):
+        events = []
+        for label, time_str, height_str in tides:
+            t_min = time_str_to_minutes(time_str)
+            h_val = float(height_str.replace("ft", "").strip())
+            if t_min is not None:
+                events.append((t_min + day_offset_mins, h_val))
+        return events
+    
+    def parse_stage_history(stage_list, day_offset_mins):
+        events = []
+        if stage_list:
+            for measurement in stage_list:
+                t_min = measurement.get("minutes")
+                stage = measurement.get("stage")
+                if t_min is not None and stage is not None:
+                    events.append((t_min + day_offset_mins, float(stage)))
+        return events
+    
+    # Combine 3 days for Goat Rock: prior (-1440 to 0), today (0 to 1440), next (1440 to 2880)
+    all_events_gr = []
+    all_events_gr.extend(parse_tides(prior_tides_gr, -24*60))
+    all_events_gr.extend(parse_tides(today_tides_gr, 0))
+    all_events_gr.extend(parse_tides(next_tides_gr, 24*60))
+    
+    # Combine 3 days for Estuary: prior (-1440 to 0), today (0 to 1440), next (1440 to 2880)
+    all_events_est = []
+    all_events_est.extend(parse_tides(prior_tides_est, -24*60))
+    all_events_est.extend(parse_tides(today_tides_est, 0))
+    all_events_est.extend(parse_tides(next_tides_est, 24*60))
+    
+    # Combine 3 days for Jenner stage: prior (-1440 to 0), today (0 to 1440), next (1440 to 2880)
+    all_events_jenner = []
+    all_events_jenner.extend(parse_stage_history(prior_jenner_stage_history, -24*60))
+    all_events_jenner.extend(parse_stage_history(today_jenner_stage_history, 0))
+    all_events_jenner.extend(parse_stage_history(next_jenner_stage_history, 24*60))
+
+    # Diagnostics for stage data
+    stage_flat = False
+    if today_jenner_stage:
+        try:
+            today_vals = [float(m.get("stage")) for m in today_jenner_stage if m.get("stage") is not None]
+            if len(today_vals) >= 2:
+                stage_min = min(today_vals)
+                stage_max = max(today_vals)
+                stage_range = stage_max - stage_min
+                if stage_range < 0.2:
+                    stage_flat = True
+                    log_error(f"Stage data appears flat (range {stage_range:.2f} ft)", "WARNING")
+            else:
+                log_error("Stage data has fewer than 2 points for today", "WARNING")
+        except Exception as e:
+            log_error(f"Stage data diagnostics failed: {e}", "WARNING")
+    else:
+        log_error("Stage data missing for today", "WARNING")
+    
+    if not all_events_gr or len(all_events_gr) < 2 or not all_events_est or len(all_events_est) < 2:
+        draw.text((x, y), "Insufficient tide data", font=text_font, fill=0)
+        return
+    
+    all_events_gr.sort()
+    all_events_est.sort()
+    if all_events_jenner:
+        all_events_jenner.sort()
+    
+    # Fixed scale: -2 to 8 ft for consistent display
+    h_min, h_max = -2, 8
+    h_range = h_max - h_min
+    
+    # Margins
+    margin_left = 12
+    margin_right = 3
+    margin_top = 3
+    margin_bottom = 12
+    
+    graph_width = width - margin_left - margin_right
+    graph_height = height - margin_top - margin_bottom
+    
+    # Sample every 15 minutes for smoother curve (1440 min / 96 samples)
+    step = 15
+    points_gr = []
+    points_est = []
+    points_jenner = []
+    
+    for t_min in range(0, 24 * 60 + 1, step):
+        h_gr = half_sine_interpolate(t_min, all_events_gr)
+        h_est = half_sine_interpolate(t_min, all_events_est)
+        if h_gr is not None:
+            px = x + margin_left + int((t_min / 1440) * graph_width)
+            py_gr = y + height - margin_bottom - int(((h_gr - h_min) / h_range) * graph_height)
+            points_gr.append((px, py_gr))
+        if h_est is not None:
+            px = x + margin_left + int((t_min / 1440) * graph_width)
+            py_est = y + height - margin_bottom - int(((h_est - h_min) / h_range) * graph_height)
+            points_est.append((px, py_est))
+        # For Jenner stage, use polynomial interpolation between measurements
+        if all_events_jenner and len(all_events_jenner) >= 2:
+            h_jenner = polynomial_fit_interpolate(t_min, all_events_jenner, degree=3)
+            if h_jenner is not None:
+                px = x + margin_left + int((t_min / 1440) * graph_width)
+                py_jenner = y + height - margin_bottom - int(((h_jenner - h_min) / h_range) * graph_height)
+                points_jenner.append((px, py_jenner))
+    
+    # Draw axis box
+    draw.rectangle((x + margin_left, y + margin_top, x + width - margin_right, y + height - margin_bottom), outline=0, fill=255)
+
+    # Warn if prior-day tides missing (can cause flat early-hours)
+    if not prior_tides_gr or len(prior_tides_gr) < 2:
+        draw.text((x + margin_left + 2, y + margin_top + 2), "Prior tides missing", font=small_text_font, fill=0)
+        log_error("Prior-day Goat Rock tides missing; early hours may appear flat", "WARNING")
+
+    # Warn if stage data appears flat
+    if stage_flat:
+        draw.text((x + margin_left + 2, y + margin_top + 12), "Stage flat", font=small_text_font, fill=0)
+    
+    # Draw Goat Rock curve (solid line)
+    if len(points_gr) > 1:
+        for i in range(len(points_gr) - 1):
+            draw.line((points_gr[i], points_gr[i + 1]), fill=0, width=1)
+    
+    # Draw Estuary curve (dashed line - every other point)
+    if len(points_est) > 1:
+        for i in range(0, len(points_est) - 1, 2):
+            draw.line((points_est[i], points_est[i + 1]), fill=0, width=1)
+    
+    # Draw Jenner Stage curve (dotted line - every third point)
+    if len(points_jenner) > 1:
+        for i in range(0, len(points_jenner) - 1, 3):
+            draw.line((points_jenner[i], points_jenner[i + 1]), fill=0, width=1)
+    
+    # Draw y-axis labels and markers (-2, 0, 2, 4, 6, 8 ft)
+    for h_label in [-2, 0, 2, 4, 6, 8]:
+        py = y + height - margin_bottom - int(((h_label - h_min) / h_range) * graph_height)
+        # Draw tick mark
+        draw.line((x + margin_left - 2, py, x + margin_left, py), fill=0, width=1)
+        # Draw label right-justified with smaller font
+        label_text = str(h_label)
+        label_bbox = draw.textbbox((0, 0), label_text, font=small_text_font)
+        label_width = label_bbox[2] - label_bbox[0]
+        draw.text((x + margin_left - 4 - label_width, py - 2), label_text, font=small_text_font, fill=0)
+    
+    # Draw x-axis time labels (4:00, 8:00, 12:00, 16:00, 20:00)
+    for h_label in [4, 8, 12, 16, 20]:
+        t_min = h_label * 60
+        px = x + margin_left + int((t_min / 1440) * graph_width)
+        py = y + height - margin_bottom + 1
+        # Draw tick mark
+        draw.line((px, y + height - margin_bottom, px, y + height - margin_bottom + 2), fill=0, width=1)
+        # Draw label with :00 format
+        label = f"{h_label}:00"
+        draw.text((px - 8, py), label, font=small_text_font, fill=0)
+
+def render_tide_layout(data):
+    # Create Portrait Image
+    img = Image.new("1", (WIDTH, HEIGHT), 255) 
+    draw = ImageDraw.Draw(img)
+    header_font, section_font, text_font, small_text_font = load_fonts()
+
+    # 1. Header Bar with data status
+    draw.rectangle((0, 0, WIDTH, 28), fill=0) 
+    date_str = date.today().strftime("%b %d, %Y")
+    today_key = date.today().strftime("%Y-%m-%d")
+    
+    # Check data freshness
+    data_ages = DataValidator.get_data_age(data)
+    available = DataValidator.get_available_data(data)
+    
+    status_indicators = ""
+    if available["goat_rock"] and available["estuary"]:
+        status_indicators = "✓ "
+    elif available["goat_rock"] or available["estuary"]:
+        status_indicators = "△ "  # Partial
+    else:
+        status_indicators = "✗ "  # None
+    
+    bbox = draw.textbbox((0, 0), f"TIDES - {date_str}", font=header_font)
+    draw.text(((WIDTH-(bbox[2]-bbox[0]))//2, 4), f"TIDES - {date_str}", font=header_font, fill=255)
+
+    # Extract today's tides from the multi-day dicts (with fallback)
+    bodega_tides = data.get("bodega_tides", {}).get(today_key, [])
+    fort_ross_tides = data.get("fort_ross", {}).get(today_key, [])
+    goat_rock_tides = data.get("goat_rock", {}).get(today_key, [])
+    estuary_tides = data.get("estuary", {}).get(today_key, [])
+
+    # 2. Block 1: Coastal (Bodega & Fort Ross side-by-side)
+    draw_station_block(draw, 10, 35, "BODEGA BAY", bodega_tides, section_font, text_font)
+    draw_station_block(draw, 160, 35, "FORT ROSS", fort_ross_tides, section_font, text_font)
+    
+    # 3. Block 2: Beach & Estuary (Goat Rock & Estuary side-by-side)
+    draw_station_block(draw, 10, 110, "GOAT ROCK", goat_rock_tides, section_font, text_font)
+    draw_station_block(draw, 160, 110, "JENNER ESTUARY", estuary_tides, section_font, text_font)
+    
+    # 4. Block 3: West Russian River Conditions (Full Width)
+    draw_flow_block(draw, 10, 190, data, section_font, text_font)
+    
+    # 5. Block 4: Tide Waveforms (bottom) - Goat Rock & Jenner Estuary with error handling
+    draw.text((10, 260), "TIDE CURVES", font=section_font, fill=0)
+    draw.text((130, 262), "(Goat Rock, Estuary & Stage)", font=small_text_font, fill=0)
+    
+    # Get prior, today, and next day tides for smooth curve edges
+    yesterday_key = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+    tomorrow_key = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    yesterday_tides_gr = data.get("goat_rock", {}).get(yesterday_key, [])
+    tomorrow_tides_gr = data.get("goat_rock", {}).get(tomorrow_key, [])
+    yesterday_tides_est = data.get("estuary", {}).get(yesterday_key, [])
+    tomorrow_tides_est = data.get("estuary", {}).get(tomorrow_key, [])
+    
+    # Get Jenner stage history for prior, today, and next day
+    yesterday_jenner_stage = data.get("jenner_stage_history", {}).get(yesterday_key, [])
+    today_jenner_stage = data.get("jenner_stage_history", {}).get(today_key, [])
+    tomorrow_jenner_stage = data.get("jenner_stage_history", {}).get(tomorrow_key, [])
+    
+    # Check if we have minimum data to draw curves
+    has_tides = (len(goat_rock_tides) >= 2 or len(estuary_tides) >= 2) and (len(yesterday_tides_gr) >= 1 or len(tomorrow_tides_gr) >= 1)
+    
+    if has_tides:
+        draw_tide_waveform(draw, 10, 275, WIDTH-20, 120, yesterday_tides_gr, goat_rock_tides, tomorrow_tides_gr, 
+                           yesterday_tides_est, estuary_tides, tomorrow_tides_est, 
+                           yesterday_jenner_stage, today_jenner_stage, tomorrow_jenner_stage, text_font, small_text_font)
+    else:
+        # Graceful degradation: show message instead of curves
+        draw.rectangle((10, 275, WIDTH-10, 395), outline=0, fill=255)
+        draw.text((20, 320), "Tide data unavailable", font=text_font, fill=0)
+        draw.text((20, 340), "Check data file", font=small_text_font, fill=0)
+        log_error("Insufficient tide data to draw curves", "WARNING")
+
+    return img
+
+# ---------- Main Loop ----------
+
+def main():
+    print("Initializing e-Paper (Portrait)...")
+    log_error("Display service started", "INFO")
+    
+    # Ensure data file exists
+    DataValidator.create_template_if_missing(DATA_FILE)
+    
+    epd = None
+    if EPAPER_AVAILABLE:
+        try:
+            epd = epd4in2_V2.EPD()
+        except Exception as e:
+            log_error(f"Failed to initialize e-Paper: {e}", "WARNING")
+            epd = None
+    
+    last_mtime = 0
+    consecutive_errors = 0
+    max_consecutive_errors = 10
+    
+    while True:
+        try:
+            if os.path.exists(DATA_FILE):
+                mtime = os.path.getmtime(DATA_FILE)
+                if mtime > last_mtime:
+                    # Load and validate data
+                    data, status = load_and_validate_data(DATA_FILE)
+                    
+                    if data is None:
+                        log_error("Unable to load any data, will retry", "ERROR")
+                        consecutive_errors += 1
+                        if consecutive_errors > max_consecutive_errors:
+                            log_error("Too many consecutive errors, creating fresh template", "WARNING")
+                            DataValidator.create_template_if_missing(DATA_FILE)
+                            consecutive_errors = 0
+                    else:
+                        consecutive_errors = 0
+                        print("Updating Portrait Display...")
+                        img = render_tide_layout(data)
+                        
+                        # Save to file(s) for testing/debug
+                        save_display_image(img)
+                        
+                        # Display on e-ink if available
+                        if epd:
+                            try:
+                                epd.init()
+                                epd.display(epd.getbuffer(img))
+                                epd.sleep()
+                                log_error("Display updated successfully", "INFO")
+                            except Exception as e:
+                                log_error(f"Failed to update display: {e}", "ERROR")
+                        
+                        last_mtime = mtime
+                        print(f"Update Complete: {time.ctime()}")
+            else:
+                log_error("Data file not found, creating template", "WARNING")
+                DataValidator.create_template_if_missing(DATA_FILE)
+        
+        except Exception as e:
+            log_error(f"Main loop error: {e}", "ERROR")
+            consecutive_errors += 1
+        
+        time.sleep(60) 
+
+if __name__ == "__main__":
+    main()

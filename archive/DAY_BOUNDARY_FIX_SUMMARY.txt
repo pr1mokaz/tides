@@ -1,0 +1,98 @@
+DAY BOUNDARY FIX - CONTINUOUS CURVE ACROSS MIDNIGHT
+=====================================================
+
+PROBLEM FIXED
+-------------
+The graph from 0:00 to 6:00 AM was showing a flat line because there were no 
+measurements during that time. The curve needs to extend from the previous day's 
+measurements to create a continuous wave pattern.
+
+SOLUTION IMPLEMENTED
+--------------------
+
+1. Modified draw_tide_waveform() function signature:
+   OLD: draw_tide_waveform(..., jenner_stage_history, ...)
+   NEW: draw_tide_waveform(..., prior_jenner_stage_history, today_jenner_stage_history, 
+                           next_jenner_stage_history, ...)
+
+2. Now combines three days of Jenner stage data (just like tidal predictions):
+   - PRIOR DAY:  measurements offset by -1440 minutes (yesterday)
+   - TODAY:      measurements offset by 0 minutes (today)
+   - NEXT DAY:   measurements offset by +1440 minutes (tomorrow)
+
+3. The polynomial interpolation works across the full -1440 to +1440 minute range:
+   - Yesterday 8:00 PM (1320 min) becomes -120 min on the graph
+   - Midnight (0:00) is position 0 on the graph
+   - Today extends through +1440 min
+
+4. Result: Smooth curve through the 0:00-6:00 window using yesterday's data trend
+
+WHAT CHANGED IN THE CODE
+------------------------
+
+display_gui_eink_portrait.py:
+
+1. draw_tide_waveform() now accepts 6 jenner parameters instead of 1:
+   - prior_jenner_stage_history
+   - today_jenner_stage_history  
+   - next_jenner_stage_history
+
+2. Added parse_stage_history() helper function to handle stage data parsing
+
+3. Combines all three days into all_events_jenner with proper day offsets
+
+4. render_tide_layout() now loads and passes all three days:
+   yesterday_jenner_stage = data.get("jenner_stage_history", {}).get(yesterday_key, [])
+   today_jenner_stage = data.get("jenner_stage_history", {}).get(today_key, [])
+   tomorrow_jenner_stage = data.get("jenner_stage_history", {}).get(tomorrow_key, [])
+
+DATA REQUIREMENTS
+-----------------
+
+For the curve to work smoothly at the day boundary, you need:
+- Yesterday's measurements (should end with evening data around 8-11 PM)
+- Today's measurements (collected throughout the day)
+- Tomorrow's measurements (optional, for edge smoothing at 11 PM)
+
+Even with just yesterday + today, the curve will be smooth and continuous.
+
+WHAT IT LOOKS LIKE
+------------------
+
+Before fix:
+  Midnight curve extends: YES
+  0:00-6:00 window: FLAT (no data)
+  Early morning: MISSING CURVE
+
+After fix:
+  Midnight curve extends: YES
+  0:00-6:00 window: SMOOTH CONTINUATION from yesterday
+  Early morning: NATURAL WAVE PATTERN
+
+The water stage measurements from yesterday (e.g., 4.6 ft at 10 PM) flow naturally
+into today's early morning measurements (5.3 ft at midnight), creating one continuous
+smooth curve across the day boundary.
+
+TEST VISUALIZATION
+------------------
+
+BOUNDARY_HANDLING_TEST.png shows:
+- Continuous curve from yesterday through midnight into today
+- Midnight marked with a vertical line on the graph
+- 193 interpolated points creating a smooth curve
+- All measurements from both days visible as circles
+- Clear demonstration that the flat line problem is fixed
+
+FILES MODIFIED
+--------------
+1. display_gui_eink_portrait.py - Updated function signature and logic
+2. fetcher.py - No changes needed (already stores measurements with dates)
+
+DEPLOYMENT NOTE
+---------------
+No changes needed in fetcher.py. It already stores measurements by date in
+jenner_stage_history, so the display will automatically access prior/today/tomorrow
+dates as needed.
+
+The fix is entirely in the display layer, so it's backward compatible with any
+existing tides.json data.
