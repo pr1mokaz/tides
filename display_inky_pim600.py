@@ -60,6 +60,10 @@ OUTPUT_FORMATS = ("png", "jpg")
 
 COLOR_WHITE = (255, 255, 255)
 COLOR_BLACK = (0, 0, 0)
+COLOR_BLUE = (0, 0, 255)
+COLOR_RED = (255, 0, 0)
+COLOR_YELLOW = (255, 255, 0)
+COLOR_ORANGE = (255, 128, 0)
 
 # Error tracking
 ERROR_LOG = []
@@ -139,8 +143,11 @@ def load_fonts():
         header_font = section_font = text_font = small_text_font = ImageFont.load_default()
     return header_font, section_font, text_font, small_text_font
 
-def draw_flow_block(draw, x, y, data, section_font, text_font, right_edge):
-    draw.text((x, y), "WEST RUSSIAN RIVER CONDITIONS", font=section_font, fill=COLOR_BLACK)
+def draw_flow_block(draw, x, y, data, section_font, text_font, right_edge, title_color=COLOR_BLUE, jenner_color=COLOR_RED):
+    title = "WEST RUSSIAN RIVER CONDITIONS"
+    title_bbox = draw.textbbox((0, 0), title, font=section_font)
+    title_w = title_bbox[2] - title_bbox[0]
+    draw.text(((WIDTH - title_w) // 2, y), title, font=section_font, fill=title_color)
     curr_y = y + 20
     # Hacienda: label on left, stage/flow right-justified
     hacienda_text = f"{data.get('hacienda_stage','--')} ft {data.get('hacienda_cfs','--')}cfs"
@@ -154,7 +161,7 @@ def draw_flow_block(draw, x, y, data, section_font, text_font, right_edge):
     draw.text((x, curr_y), "US-1 Bridge Jenner:", font=text_font, fill=COLOR_BLACK)
     j_bbox = draw.textbbox((0, 0), jenner_text, font=text_font)
     j_width = j_bbox[2] - j_bbox[0]
-    draw.text((right_edge - j_width, curr_y), jenner_text, font=text_font, fill=COLOR_BLACK)
+    draw.text((right_edge - j_width, curr_y), jenner_text, font=text_font, fill=jenner_color)
     curr_y += 16
     curr_y += 2
     # Mouth: label on left, status right-justified
@@ -165,12 +172,12 @@ def draw_flow_block(draw, x, y, data, section_font, text_font, right_edge):
     draw.text((right_edge - m_width, curr_y), mouth_text, font=text_font, fill=COLOR_BLACK)
     curr_y += 16
 
-def draw_coastal_table(draw, x, y, bodega_tides, goat_rock_tides, fort_ross_tides, section_font, text_font, small_text_font):
+def draw_coastal_table(draw, x, y, bodega_tides, goat_rock_tides, fort_ross_tides, section_font, text_font, small_text_font, title_color=COLOR_BLUE, goat_rock_color=COLOR_BLUE, bodega_color=COLOR_BLACK, fort_ross_color=COLOR_BLACK):
     """Draw a single table block for Bodega, Goat Rock, and Fort Ross."""
     title = "COASTAL TIDES"
     title_bbox = draw.textbbox((0, 0), title, font=section_font)
     title_w = title_bbox[2] - title_bbox[0]
-    draw.text(((WIDTH - title_w) // 2, y), title, font=section_font, fill=COLOR_BLACK)
+    draw.text(((WIDTH - title_w) // 2, y), title, font=section_font, fill=title_color)
 
     # Column anchors (right-justified for time/height columns)
     col_label = x
@@ -183,9 +190,9 @@ def draw_coastal_table(draw, x, y, bodega_tides, goat_rock_tides, fort_ross_tide
 
     # Station headers
     header_y = y + 18
-    draw.text((col_b_time - 60, header_y), "Bodega Bay", font=text_font, fill=COLOR_BLACK)
-    draw.text((col_g_time - 55, header_y), "Goat Rock", font=text_font, fill=COLOR_BLACK)
-    draw.text((col_f_time - 50, header_y), "Fort Ross", font=text_font, fill=COLOR_BLACK)
+    draw.text((col_b_time - 60, header_y), "Bodega Bay", font=text_font, fill=bodega_color)
+    draw.text((col_g_time - 55, header_y), "Goat Rock", font=text_font, fill=goat_rock_color)
+    draw.text((col_f_time - 50, header_y), "Fort Ross", font=text_font, fill=fort_ross_color)
 
     row_y = y + 38
     row_h = 16
@@ -210,20 +217,20 @@ def draw_coastal_table(draw, x, y, bodega_tides, goat_rock_tides, fort_ross_tide
                 return text
             return text
 
-        def draw_right(text, x_right, y_pos):
+        def draw_right(text, x_right, y_pos, color):
             if not text:
                 return
             text = to_24h(text)
             bbox = draw.textbbox((0, 0), text, font=text_font)
             w = bbox[2] - bbox[0]
-            draw.text((x_right - w, y_pos), text, font=text_font, fill=COLOR_BLACK)
+            draw.text((x_right - w, y_pos), text, font=text_font, fill=color)
 
-        draw_right(b[1], col_b_time, row_y)
-        draw_right(b[2], col_b_ht, row_y)
-        draw_right(g[1], col_g_time, row_y)
-        draw_right(g[2], col_g_ht, row_y)
-        draw_right(f[1], col_f_time, row_y)
-        draw_right(f[2], col_f_ht, row_y)
+        draw_right(b[1], col_b_time, row_y, bodega_color)
+        draw_right(b[2], col_b_ht, row_y, bodega_color)
+        draw_right(g[1], col_g_time, row_y, goat_rock_color)
+        draw_right(g[2], col_g_ht, row_y, goat_rock_color)
+        draw_right(f[1], col_f_time, row_y, fort_ross_color)
+        draw_right(f[2], col_f_ht, row_y, fort_ross_color)
 
         row_y += row_h
 
@@ -480,17 +487,17 @@ def draw_tide_waveform(draw, x, y, width, height, prior_tides_gr, today_tides_gr
     # Draw Goat Rock curve (solid line)
     if len(points_gr) > 1:
         for i in range(len(points_gr) - 1):
-            draw.line((points_gr[i], points_gr[i + 1]), fill=COLOR_BLACK, width=1)
+            draw.line((points_gr[i], points_gr[i + 1]), fill=COLOR_BLUE, width=2)
 
-    # Draw Estuary curve (dashed line - every other point)
+    # Draw Estuary curve (solid line)
     if len(points_est) > 1:
-        for i in range(0, len(points_est) - 1, 2):
-            draw.line((points_est[i], points_est[i + 1]), fill=COLOR_BLACK, width=1)
+        for i in range(len(points_est) - 1):
+            draw.line((points_est[i], points_est[i + 1]), fill=COLOR_ORANGE, width=2)
 
-    # Draw Jenner Stage curve (dotted line - every third point)
+    # Draw Jenner Stage curve (solid line)
     if len(points_jenner) > 1:
-        for i in range(0, len(points_jenner) - 1, 3):
-            draw.line((points_jenner[i], points_jenner[i + 1]), fill=COLOR_BLACK, width=1)
+        for i in range(len(points_jenner) - 1):
+            draw.line((points_jenner[i], points_jenner[i + 1]), fill=COLOR_RED, width=2)
 
     # Draw y-axis labels and markers (-2, 0, 2, 4, 6, 8, 10 ft)
     for h_label in [-2, 0, 2, 4, 6, 8, 10]:
@@ -516,12 +523,12 @@ def draw_tide_waveform(draw, x, y, width, height, prior_tides_gr, today_tides_gr
 
 def render_tide_layout(data):
     # Create Image
-    img = Image.new("RGB", (WIDTH, HEIGHT), COLOR_WHITE)
+    img = Image.new("RGB", (WIDTH, HEIGHT), COLOR_YELLOW)
     draw = ImageDraw.Draw(img)
     header_font, section_font, text_font, small_text_font = load_fonts()
 
     # 1. Header Bar with data status
-    draw.rectangle((0, 0, WIDTH, 28), fill=COLOR_BLACK)
+    draw.rectangle((0, 0, WIDTH, 28), fill=COLOR_BLUE)
     date_str = date.today().strftime("%b %d, %Y")
     today_key = date.today().strftime("%Y-%m-%d")
 
@@ -538,7 +545,7 @@ def render_tide_layout(data):
         status_indicators = "✗ "  # None
 
     bbox = draw.textbbox((0, 0), f"{date_str}", font=header_font)
-    draw.text(((WIDTH - (bbox[2] - bbox[0])) // 2, 4), f"{date_str}", font=header_font, fill=COLOR_WHITE)
+    draw.text(((WIDTH - (bbox[2] - bbox[0])) // 2, 4), f"{date_str}", font=header_font, fill=COLOR_YELLOW)
 
     # Extract today's tides from the multi-day dicts (with fallback)
     bodega_tides = data.get("bodega_tides", {}).get(today_key, [])
@@ -547,14 +554,17 @@ def render_tide_layout(data):
     estuary_tides = data.get("estuary", {}).get(today_key, [])
 
     # 2. Block 1: West Russian River Conditions (Full Width)
-    draw_flow_block(draw, 20, 40, data, section_font, text_font, WIDTH - 20)
+    draw_flow_block(draw, 20, 40, data, section_font, text_font, WIDTH - 20, title_color=COLOR_BLUE, jenner_color=COLOR_RED)
 
     # 3. Block 2: Coastal table (Bodega, Goat Rock, Fort Ross)
-    draw_coastal_table(draw, 20, 120, bodega_tides, goat_rock_tides, fort_ross_tides, section_font, text_font, small_text_font)
+    draw_coastal_table(draw, 20, 115, bodega_tides, goat_rock_tides, fort_ross_tides, section_font, text_font, small_text_font, title_color=COLOR_BLUE, goat_rock_color=COLOR_BLUE)
 
     # 4. Block 3: Tide Waveforms (bottom) - Goat Rock & Jenner Estuary with error handling
-    draw.text((20, 220), "TIDE CURVES", font=section_font, fill=COLOR_BLACK)
-    draw.text((140, 222), "(Goat Rock, Estuary & Stage)", font=small_text_font, fill=COLOR_BLACK)
+    tide_title = "TIDE CURVES"
+    tide_bbox = draw.textbbox((0, 0), tide_title, font=section_font)
+    tide_w = tide_bbox[2] - tide_bbox[0]
+    draw.text(((WIDTH - tide_w) // 2, 225), tide_title, font=section_font, fill=COLOR_BLUE)
+    draw.text(((WIDTH - tide_w) // 2 + tide_w + 6, 227), "(Goat Rock, Estuary & Stage)", font=small_text_font, fill=COLOR_BLACK)
 
     # Get prior, today, and next day tides for smooth curve edges
     yesterday_key = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -599,7 +609,7 @@ def render_tide_layout(data):
         draw.text((30, 325), "Check data file", font=small_text_font, fill=COLOR_BLACK)
         log_error("Insufficient tide data to draw curves", "WARNING")
 
-    return img
+    return img.rotate(180)
 
 # ---------- Main Loop ----------
 
